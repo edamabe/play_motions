@@ -3,23 +3,25 @@
 import json
 import queue
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import pyaudio
 from vosk import KaldiRecognizer, Model
-
-from config import VOICE_TRIGGERS
 
 
 class VoiceListener:
     """Voskによる音声認識を別スレッドで管理するクラス."""
 
-    def __init__(self, model_path: str = "models/vosk-model-ja") -> None:
+    def __init__(
+        self, triggers: list[dict[str, Any]], model_path: str = "models/vosk-model-ja"
+    ) -> None:
         """VoiceListenerの初期化.
 
         Args:
+            triggers: 有効にする音声トリガーのリスト
             model_path: Vosk用言語モデルの配置ディレクトリ
         """
+        self.triggers = triggers
         self.model_path = model_path
         self.running = False
         self.result_queue: queue.Queue[str] = queue.Queue()
@@ -81,7 +83,7 @@ class VoiceListener:
     def _evaluate_text(self, text: str) -> None:
         """認識されたテキストからトリガーワードを探し、あればキューに送る."""
         text = text.replace(" ", "")  # Voskの出力には空白が含まれることがあるため除去
-        for trigger in VOICE_TRIGGERS:
+        for trigger in self.triggers:
             for keyword in trigger.get("keywords", []):
                 if keyword in text:
                     # キューに追加してメインスレッドに通知する

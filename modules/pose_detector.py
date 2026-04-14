@@ -3,14 +3,12 @@
 import os
 import time
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-
-from config import POSE_TRIGGERS
 
 # ランドマークのインデックス定義
 LANDMARK_NAMES = [
@@ -53,8 +51,13 @@ LANDMARK_NAMES = [
 class PoseDetector:
     """MediaPipe Tasks APIによるポーズ判定とトリガー管理を行うクラス."""
 
-    def __init__(self) -> None:
-        """PoseDetectorの初期化."""
+    def __init__(self, triggers: List[Dict[str, Any]]) -> None:
+        """PoseDetectorの初期化.
+
+        Args:
+            triggers: 有効にするポーズトリガーのリスト
+        """
+        self.triggers = triggers
         self.model_path = "models/pose_landmarker_lite.task"
         self._ensure_model_exists()
 
@@ -111,7 +114,7 @@ class PoseDetector:
 
         current_time = time.time()
 
-        for trigger in POSE_TRIGGERS:
+        for trigger in self.triggers:
             name = trigger["name"]
             condition = trigger["condition"]
             duration = trigger["duration"]

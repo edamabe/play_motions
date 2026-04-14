@@ -1,12 +1,12 @@
 """エフェクト管理モジュール."""
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
 import pygame
-from PIL import Image
+from PIL import Image, ImageSequence
 
 
 class EffectPlayer:
@@ -19,10 +19,12 @@ class EffectPlayer:
 
         # キャッシュ辞書（ファイル読み込みのオーバーヘッドをなくすため）
         self.sounds_cache: Dict[str, pygame.mixer.Sound] = {}
-        self.images_cache: Dict[str, Image.Image] = {}
+        # キャッシュには単一の画像か、アニメーションフレームのリストを保持する
+        self.images_cache: Dict[str, Union[Image.Image, List[Image.Image]]] = {}
 
         # 現在アクティブなエフェクトの状態管理
         self.active_image_path: Optional[str] = None
+        self.effect_start_time: float = 0.0
         self.effect_end_time: float = 0.0
 
     def trigger_effect(self, image_path: str, sound_path: str, duration: float) -> None:
@@ -40,7 +42,8 @@ class EffectPlayer:
         # 画像表示のセットアップ
         if image_path:
             self.active_image_path = image_path
-            self.effect_end_time = time.time() + duration
+            self.effect_start_time = time.time()
+            self.effect_end_time = self.effect_start_time + duration
 
     def play_sound(self, sound_path: str) -> None:
         """効果音を即座に再生する."""
@@ -52,6 +55,37 @@ class EffectPlayer:
         except Exception as e:
             print(f"音声の再生に失敗しました ({sound_path}): {e}")
 
+    def _get_current_image_frame(self) -> Optional[Image.Image]:
+        """現在表示すべき画像のフレームを取得する."""
+        if not self.active_image_path:
+            return None
+
+        # 画像のキャッシュ読み込み
+        if self.active_image_path not in self.images_cache:
+            img = Image.open(self.active_image_path)
+            frames = []
+            for frame in ImageSequence.Iterator(img):
+                frames.append(frame.convert("RGBA").copy())
+
+            # 1枚しかない場合はそのまま保持し、複数枚あればリストで保持
+            if len(frames) == 1:
+                self.images_cache[self.active_image_path] = frames[0]
+            else:
+                self.images_cache[self.active_image_path] = frames
+
+        cached_data = self.images_cache[self.active_image_path]
+
+        # 単一フレームである場合
+        if isinstance(cached_data, Image.Image):
+            return cached_data
+
+        # アニメーションの場合（GIFなど）
+        # 10 fps (0.1秒ごとのコマ送り) で計算
+        elapsed_time = time.time() - self.effect_start_time
+        fps = 10.0
+        frame_index = int(elapsed_time * fps) % len(cached_data)
+        return cached_data[frame_index]
+
     def apply_effects(self, frame_bgr: Any) -> Any:
         """現在のフレーム（BGR）にアクティブなエフェクト画像を合成して返す."""
         if not self.active_image_path or time.time() > self.effect_end_time:
@@ -59,13 +93,9 @@ class EffectPlayer:
             return frame_bgr
 
         try:
-            # 画像のキャッシュ読み込み
-            if self.active_image_path not in self.images_cache:
-                # 透過情報を保持してRGBAで読み込む
-                img = Image.open(self.active_image_path).convert("RGBA")
-                self.images_cache[self.active_image_path] = img
-
-            overlay_img = self.images_cache[self.active_image_path]
+            overlay_img = self._get_current_image_frame()
+            if not overlay_img:
+                return frame_bgr
 
             # OpenCVのBGRフレームをPillow(RGBA)に変換
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
